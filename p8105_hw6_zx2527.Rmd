@@ -31,13 +31,21 @@ options(
 
 scale_colour_discrete = scale_colour_viridis_d
 scale_fill_discrete = scale_fill_viridis_d
+
+knitr::opts_chunk$set(
+  fig.width = 10,
+  fig.height = 12,
+  dpi = 300
+)
+
+
 ```
 
 # Problem 1
 
 ## Import data
 ```{r}
-homi_raw=read.csv("./data/homicide-data.csv",na=c("NA", "0", "")) |>
+homi_raw=read.csv("./data/homicide-data.csv",na=c("NA", "")) |>
   janitor::clean_names() 
 ```
 
@@ -58,7 +66,8 @@ homi_clean<- homi_raw |>
   ) |>
   mutate(
     victim_age=as.numeric(victim_age)
-  )
+  ) |>
+  drop_na(victim_age, victim_sex, victim_race,solved)
 
 ```
 
@@ -76,12 +85,11 @@ fit_balt <- glm(
 res_balt <- tidy(fit_balt, exponentiate = TRUE, conf.int = TRUE) |>
   filter(term == "victim_sexMale")
 
-knitr::kable(res_balt)
-
+res_balt
 ```
 
-Estimate adjusted odds ratio: 0.44
-Confidence interval: (0.34, 0.58)
+For Baltimore homicide cases, the adjusted odds ratio for case resolution among male victims compared to female victims is approximately 0.43 (95% CI: 0.32–0.56, p < 0.001), indicating that homicides involving male victims are significantly less likely to be solved.
+
 
 ## Other cities building function, then loop iteration
 ```{r}
@@ -125,7 +133,6 @@ ggplot(city_glm_results,
     axis.text.y = element_text(size = 6),  
     panel.grid.major.y = element_blank()   
   )
-knitr::opts_chunk$set(fig.width = 10, fig.height = 12)
 
 ```
 
@@ -140,6 +147,7 @@ weather_clean =
   weather_df |>
   drop_na(tmax, tmin, prcp)
 ```
+
 look at the data first
 ```{r}
 weather_clean |>
