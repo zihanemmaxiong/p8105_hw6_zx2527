@@ -125,6 +125,8 @@ ggplot(city_glm_results,
     axis.text.y = element_text(size = 6),  
     panel.grid.major.y = element_blank()   
   )
+knitr::opts_chunk$set(fig.width = 10, fig.height = 12)
+
 ```
 
 Most cities show lower odds of solving homicides involving male victims compared to female victims (OR < 1), even after adjusting for age and race. However, the strength of this disparity varies by city, with some locations showing much wider confidence intervals due to smaller sample sizes.
