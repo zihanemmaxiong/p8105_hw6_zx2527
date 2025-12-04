@@ -166,7 +166,7 @@ weather_stats=function(df){
   
   tibble(
     r2   = r2,
-    b1b2 = b1 * b2
+    b1_over_b2 = b1 / b2
   )
 }
 
@@ -195,7 +195,7 @@ weather_bootstrap=
 weather_bootstrap_long = 
   weather_bootstrap |> 
   pivot_longer(
-    cols = c(r2, b1b2),
+    cols = c(r2, b1_over_b2),
     names_to = "stat",
     values_to = "value"
   )
@@ -209,10 +209,14 @@ weather_bootstrap_long |>
   labs(
     x = "Bootstrap estimate",
     y = "Density",
-    title = "Bootstrap distributions of R^2 and beta1*beta2"
+    title = "Bootstrap distributions of R^2 and beta1/beta2"
   )
 
 ```
+
+The bootstrap distribution of R^2 is approximately symmetric and tightly concentrated around 0.94. This suggests that the regression model consistently explains a high proportion of the variation in maximum temperature, with relatively low uncertainty in this estimate.
+
+In contrast, the distribution of beta1_over_beta2 is highly left-skewed, with a long tail extending toward more negative values. This reflects substantial instability in the coefficient ratio, likely due to the small and variable estimated effect of precipitation in the model. As a result, inference for this quantity is considerably more uncertain.
 
 ### Calculate 95%CI
 ```{r}
@@ -225,4 +229,147 @@ weather_bootstrap_long |>
   knitr::kable(digits = 4)
 
 ```
+
+## Problem 3
+### Import data
+```{r}
+bw_raw = read_csv("./data/birthweight.csv") |>
+  janitor::clean_names() 
+```
+```{r}
+bw_clean =
+  bw_raw |>
+  mutate(
+    babysex=factor(babysex,
+                   levels = c(1,2),
+                   labels = c("male","female")),
+    malform=factor(malform,
+                   levels = c(0,1),
+                   labels = c("absent","present")),
+    mrace=factor(mrace,
+                 levels = c(1,2,3,4,8),
+                 labels = c("white","black","asian","puerto_rican","other")),
+    frace=factor(frace,
+                 levels =c(1,2,3,4,8,9),
+                 labels = c("white","black","asian","puerto_rican","other","unknown"))
+  ) |>
+  drop_na()
+```
+```{r}
+bw_clean |> summarise(across(everything(), ~sum(is.na(.))))
+nrow(bw_clean)
+```
+
+### 1. omit model: select variables
+Birthweight can be influenced by a combination of biological growth factors and maternal health conditions. Specifically: gestational age (gaweeks), infant body size at birth (blength, bhead), maternal body composition (ppbmi, wtgain), maternal smoking (smoken), infant sex and maternal race (babysex, mrace). Now, build the model.
+
+```{r}
+birth_model_1 = 
+  bw_clean |>
+  lm(
+    bwt ~ bhead + blength + gaweeks + ppbmi + wtgain + smoken + babysex + mrace,
+    data = _
+  )
+
+broom::tidy(birth_model_1) |> 
+  knitr::kable(digits = 3)
+
+```
+
+### 2. take a look at the residual vs fitted values  plot
+```{r}
+bw_clean |>
+  modelr::add_predictions(birth_model_1) |>
+  modelr::add_residuals(birth_model_1) |>
+  ggplot(aes(x = pred, y = resid)) +
+  geom_point(alpha = 0.4) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  labs(
+    x = "Fitted values",
+    y = "Residuals",
+    title = "Residuals vs fitted for birthweight model 1"
+  )
+
+```
+
+It seems like residuals appear to be roughly centered around zero with no strong curvature, suggesting that the linearity assumption is reasonably satisfied. However, I do notice that the spread of residuals increases slightly as fitted birthweights increase, so maybe indicates some heteroscedasticity. Additionally, a few large residuals suggest the potential outliers or extreme cases.
+
+### 3. compare my model to two others
+```{r}
+birth_model_len_ga =
+  bw_clean |>
+  lm(bwt ~ blength + gaweeks, data = _)
+
+birth_model_int =
+  bw_clean |>
+  lm(bwt ~ bhead * blength * babysex, data = _)
+
+```
+
+### 4. cross validation
+
+now I want to create repeated splits of the data into training and testing sets. So I use crossv_mc() to perform Monte-Carlo cross-validation, allowing us to assess model performance under repeated random sampling. Each row of the resulting dataframe contains separate training and testing subsets.
+```{r}
+
+set.seed(1)
+
+cv_df =
+  crossv_mc(bw_clean, n = 100) |> 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)
+  )
+
+```
+
+### 5. Fit the three models on each bootstrap training dataset and apply each candidate model to each training dataset using purrr::map.
+```{r}
+cv_df =
+  cv_df |>
+  mutate(
+    fit_model1 = map(train, \(df) lm(bwt ~ bhead + blength + gaweeks + 
+                                      ppbmi + wtgain + smoken + babysex + mrace, 
+                                    data = df)),
+    fit_len_ga = map(train, \(df) lm(bwt ~ blength + gaweeks, data = df)),
+    fit_int = map(train, \(df) lm(bwt ~ bhead * blength * babysex, data = df))
+  )
+
+```
+### 6. compare RMSE: to compute RMSE for each model on the mayching test dataset.
+
+```{r}
+cv_df =
+  cv_df |> 
+  mutate(
+    rmse_model1 = map2_dbl(fit_model1, test, rmse),
+    rmse_len_ga = map2_dbl(fit_len_ga, test, rmse),
+    rmse_int    = map2_dbl(fit_int, test, rmse)
+  )
+```
+### 7. visualization and comparison
+```{r}
+cv_df |> 
+  select(starts_with("rmse")) |> 
+  pivot_longer(
+    everything(),
+    names_to = "model",
+    values_to = "rmse",
+    names_prefix = "rmse_"
+  ) |> 
+  ggplot(aes(x = model, y = rmse)) + 
+  geom_violin() +
+  labs(
+    x = "Model",
+    y = "RMSE",
+    title = "Cross-validated RMSE Comparison of Birthweight Models"
+  )
+
+```
+
+I found that my model(model1) provides the best predictive performance, with the lowest average RMSE and relatively low variability across resamples. The simpler model using only birth length and gestational age (len_ga) performs substantially worse, suggesting that these two predictors alone do not fully capture important drivers of birthweight.
+The fully-interactive model (int) shows slightly higher RMSE and more variability compared to my model, indicating possible overfitting due to the large number of interaction terms.
+
+
+
+
 
